@@ -1,0 +1,52 @@
+---
+title: "Reproducable Research Storm Data"
+author: "Eddie Warner"
+output:
+  html_document:
+    keep_md: yes
+    theme: united
+  pdf_document: default
+references:
+- URL: https://en.wikipedia.org/wiki/Exponential_distribution
+  authors:
+    name: Wikipedia
+  id: wiki_ed
+  title: Exponential distribution
+geometry: margin=1.5cm
+---
+
+
+## Synopsis:
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+library(data.table)
+library(plyr)
+library(dplyr)
+library(ggplot2)
+library(knitr)
+
+opts_chunk$set(out.width='900px', dpi=200)
+```
+This data analysis will explore the NOAA Storm Database in order to answer qestions about severe weather events. This report will look at which event types of most harmful to populations effected. In addition, event types will be analyzed for economic costs.
+
+## Data Processing
+
+```{r data, echo=TRUE}
+    
+file.name <- "repdata-data-StormData.csv.bz2"
+file.url <- "https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2"
+
+if(!file.exists(file.name)) {
+    download.file(url = file.url, destfile = file.name)
+}
+
+storm_data <- as.data.table(read.csv(file.name, stringsAsFactors=FALSE))
+
+```
+
+
+## Results
+
+### Plots
+
+### Analysis
+

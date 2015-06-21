@@ -7,7 +7,13 @@
 
 # RStudio files
 .Rproj.user/
+.RData
+.Rprofile
+*.Rproj
 
 # produced vignettes
 vignettes/*.html
 vignettes/*.pdf
+
+#data
+repdata-data-StormData.csv.bz2
