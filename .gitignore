@@ -17,3 +17,6 @@ vignettes/*.pdf
 
 #data
 repdata-data-StormData.csv.bz2
+
+# R markdown
+ReproducibleResearchStormData_cache/

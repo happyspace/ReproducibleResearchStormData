@@ -1,36 +1,51 @@
 ---
-title: "Reproducable Research Storm Data"
+title: "Reproducible Research Storm Data"
 author: "Eddie Warner"
 output:
   html_document:
     keep_md: yes
     theme: united
-  pdf_document: default
+  pdf_document: default 
 references:
-- URL: https://en.wikipedia.org/wiki/Exponential_distribution
-  authors:
-    name: Wikipedia
-  id: wiki_ed
-  title: Exponential distribution
+- URL: http://www.ncdc.noaa.gov/stormevents/details.jsp?type=eventtype
+  author:
+  - family: NOAA
+  publisher: NOAA
+  id: NOAA_events
+  title: Storm Events Database
+- URL: http://www.ncdc.noaa.gov/stormevents/pd01016005curr.pdf
+  author:
+  - family: NOAA
+  publisher: NOAA
+  id: 10-1605
+  title: STORM DATA PREPARATION
 geometry: margin=1.5cm
 ---
 
 
 ## Synopsis:
-```{r echo=TRUE, message=FALSE, warning=FALSE}
+```{r loadlibraries, echo=FALSE, message=FALSE, warning=FALSE}
 library(data.table)
 library(plyr)
 library(dplyr)
 library(ggplot2)
+library(lubridate)
+library(scales)
+library(stringr)
+
 library(knitr)
+
 
 opts_chunk$set(out.width='900px', dpi=200)
 ```
-This data analysis will explore the NOAA Storm Database in order to answer qestions about severe weather events. This report will look at which event types of most harmful to populations effected. In addition, event types will be analyzed for economic costs.
+  
+This data analysis will explore the NOAA Storm Database in order to answer questions about severe weather events. This report will look at which event types of most harmful to populations effected. In addition, event types will be analyzed for economic costs.
+
+Since events recorded have changed and coding for events have changed this study will look at the events from 1995 - 2011. This period has all relevant events recorded in the same way. After 1996 48 event types where used to code the events. See [@NOAA_events] in the reference section below.
 
 ## Data Processing
 
-```{r data, echo=TRUE}
+```{r data, echo=TRUE, cache=TRUE}
     
 file.name <- "repdata-data-StormData.csv.bz2"
 file.url <- "https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2"
@@ -39,14 +54,160 @@ if(!file.exists(file.name)) {
     download.file(url = file.url, destfile = file.name)
 }
 
-storm_data <- as.data.table(read.csv(file.name, stringsAsFactors=FALSE))
+storm_data <- as.data.table(read.csv(file.name, stringsAsFactors=FALSE, strip.white=TRUE))
+
+```
+### Data set facts
+
+```{r data_facts, echo=TRUE, cache=TRUE}
+dim(storm_data)
+summary(storm_data$EVTYPE, storm_data$BGN_DATE, storm_data$EVTYPE, storm_data$FATALITIES, storm_data$INJURIES, storm_data$PROPDMG, storm_data$PROPDMGEXP, storm_data$CROPDMG, storm_data$CROPDMGEXP)
+head(storm_data)
+```
+
+### Data conversion
+
+Convert BGN_DATE to a date column to allow for time calculations
+
+```{r convert_date, echo=TRUE, cache=TRUE}
+storm_data <- storm_data %>% mutate(BGN_DATE = mdy_hms(BGN_DATE))
+
+```
+
+To answer questions implicit to the study the following columns will be selected from the data set. The data set column names are not explicitly listed within either reference documents provided. 
+
+
+
+See above. Damage exponent are considered as ("K", "M", "B") thousands, millions and billions.
+
+Create a factor for the cost extension to convert to four levels c("","K", "M", "B").
+Calculate a total damage summation between crop damage and infrastructure damage.
+
+```{r columns, echo=TRUE}
+sel_storm_data_date <- storm_data %>% filter(BGN_DATE >= ymd("1996/01/01"))
+# columns
+sel_storm_data_fn <- sel_storm_data_date %>% select(BGN_DATE, EVTYPE, FATALITIES, INJURIES, PROPDMG, PROPDMGEXP, CROPDMG, CROPDMGEXP)
+# create factors
+sel_storm_data_fn$PROPDMGEXP <- factor(sel_storm_data_fn$PROPDMGEXP, levels=c("","K", "M", "B"))
+sel_storm_data_fn$CROPDMGEXP <- factor(sel_storm_data_fn$CROPDMGEXP, levels=c("","K", "M", "B"))
+# start cleaning event type
+sel_storm_data_fn <- sel_storm_data_fn %>% 
+    mutate(EVTYPE = toupper(EVTYPE)) 
+
+sel_storm_data_fn$EVTYPE <- str_trim(sel_storm_data_fn$EVTYPE)
+
+sel_storm_data_fn$EVTYPE <- factor(sel_storm_data_fn$EVTYPE)
+# dictionary exp
+exp_num <- c(1, 1000, 1000000, 1000000000)
+names(exp_num) <- c("","K", "M", "B")
+
+# calculate damage
+sel_storm_data_fn <- sel_storm_data_fn %>% mutate(PROPTOT = exp_num[PROPDMGEXP] * PROPDMG)
+sel_storm_data_fn <- sel_storm_data_fn %>% mutate(CROPTOT = exp_num[CROPDMGEXP] * CROPDMG)
+sel_storm_data_fn <- sel_storm_data_fn %>% mutate(DAMAGETOT = PROPTOT + CROPTOT)
+
+```
+
+Look at the event type column. Save these event types in order to create a manual map to the 48 codes in use since 1996. [see @10-1605]  Even through the study will use data after 1996 and that data should use the 48 codes EVTYPE still has 196 levels. The strategy to map names will be to map when there is a clear mapping (WINTER WEATHER MIX <->          Winter Weather) but to leave ambiguous mapping alone (OTHER <-> OTHER)
+
+```{r event_type, echo=TRUE}
+file.name.csv <- "events_raw.csv"
+file.name.mapped <- "events_mapped.csv"
+
+# write out event names
+if(!file.exists(file.name.csv)) {
+    events <- sort(levels(sel_storm_data_fn$EVTYPE)))
+    write.table(as.data.table(events), file = file.name.csv, row.names = FALSE)
+}
+
+# read the mapped values back in
+event_types_mapped <- read.table(file.name.mapped, stringsAsFactors = FALSE)
+names(event_types_mapped) <- c("index", "event_name", "event_name_mapped")
+
+event_types_mapped <- event_types_mapped %>% 
+    mutate(event_name_mapped = toupper(event_name_mapped)) %>% 
+    mutate(replace = paste(event_name, '=', event_name_mapped))
+
+replace <- as.character(event_types_mapped$event_name_mapped)
+names(replace) <- as.character(event_types_mapped$event_name)
+
+sel_storm_data_fn <- sel_storm_data_fn %>% mutate(EVTYPEMAP = EVTYPE)
+
+sel_storm_data_fn$EVTYPEMAP <- revalue(sel_storm_data_fn$EVTYPEMAP, replace = replace)
+
+# mapvalues(sel_storm_data_fn$EVTYPEMAP, from = event_types_mapped$event_name, to = event_types_mapped)
+
+# sel_storm_data_fn <- sel_storm_data_fn %>% mutate(EVTYPEMAP = sub(EVTYPEMAP,event_types_mapped$event_name))
+
+
+```
+
+
+For injury and death, group by event and sum each category.
+
+```{r pop_ID, echo=TRUE}
+pop_InjDeath <- sel_storm_data_fn %>% group_by(EVTYPE) %>% 
+    summarise(INJURIES= sum(INJURIES), FATALITIES = sum(FATALITIES), I_F = sum(INJURIES + FATALITIES)) %>% 
+    arrange(desc(I_F)) %>% 
+    top_n(10)
+
+
+```
+
+For damage take sum the total damage over property and crops.
+
+```{r pop_damage, echo=TRUE}
+pop <- sel_storm_data_fn %>% 
+#    mutate(YEAR = fomat(BGN_DATE,"%Y")) %>% 
+    group_by(EVTYPE) %>% 
+    summarise(DAMAGETOT = sum(DAMAGETOT))
+#    ungroup() 
+
+pop <- pop %>% arrange(desc(DAMAGETOT)) %>% 
+    top_n(10)
 
 ```
 
 
 ## Results
 
-### Plots
+For the decade 2000-2010 the following where the most harmful for damage to crops or infrastructure.
 
-### Analysis
+### Plots and Analysis
+
+From the plot Flood is by far the most expensive category followed by hurricane.
+
+```{r pop_damage_plot, echo=TRUE}
+
+pop_dam <- ggplot(pop, aes(x = reorder(EVTYPE, -DAMAGETOT), y = DAMAGETOT)) + geom_bar(fill="blue2", stat="identity")
+pop_dam <- pop_dam + labs(title = "Most expensive sever weather types for 2000-2009",
+         x = "Event Type")
+pop_dam <- pop_dam + scale_y_continuous(name="Total Damage", labels = comma)
+pop_dam <- pop_dam + theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust=1))
+pop_dam
+
+
+#pop_dam <- ggplot(pop, aes(x = BGN_DATE, y = nPROPDMG/10^9, group=EVTYPE, color=EVTYPE))
+#pop_dam <- pop_dam + geom_line(size = 1) + geom_point(size = 2) 
+#pop_dam <- pop_dam + scale_x_datetime(breaks = date_breaks("1 year"), labels = date_format("%Y"))
+#pop_dam <- pop_dam + labs(title = "Most harmful weather types 2000-2009", x = "Year", y = "Damage")
+#pop_dam <- pop_dam + theme(axis.text.x = element_text(angle = 90, hjust = 1))
+#pop_dam
+
+```
+
+
+From the plot Tornado followed by heat cause the most harm to the population.
+
+```{r pop_pop_harm_plot, echo=TRUE}
+
+pop_harm <- ggplot(pop_InjDeath, aes(x = reorder(EVTYPE, -(INJURIES + FATALITIES)), y = INJURIES + FATALITIES)) + geom_bar(fill="blue2", position="stack", stat="identity")
+pop_harm <- pop_harm + labs(title = "Most harmful sever weather types for 2000-2009",
+         x = "Event Type")
+pop_harm <- pop_harm + theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust=1))
+pop_harm
+
+```
+
+
 
